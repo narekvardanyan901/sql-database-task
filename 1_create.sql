@@ -12,7 +12,7 @@ CREATE TABLE events (
     eventName NVARCHAR(300) NOT NULL,
     eventDateTime DATETIME NOT NULL,
     eventDescription NVARCHAR(MAX) NOT NULL,
-    venueID INT REFERENCES venue(venueId)
+    venueID INT REFERENCES venue(venueID)
     
 ) ;
 
