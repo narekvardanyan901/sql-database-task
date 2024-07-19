@@ -47,6 +47,8 @@ CREATE TABLE atendeesTickets(
     PRIMARY KEY (attendeeID , ticketID)
 )
 
+CREATE NONCLUSTERED INDEX IX_event_name ON events (eventName);
 
+CREATE NONCLUSTERED INDEX IX_event_dateTime ON events (eventDateTime);
 
-
+CREATE NONCLUSTERED INDEX IX_venue_name ON venue (venueName);
