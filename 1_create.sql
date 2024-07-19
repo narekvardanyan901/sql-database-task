@@ -52,3 +52,89 @@ CREATE NONCLUSTERED INDEX IX_event_name ON events (eventName);
 CREATE NONCLUSTERED INDEX IX_event_dateTime ON events (eventDateTime);
 
 CREATE NONCLUSTERED INDEX IX_venue_name ON venue (venueName);
+
+
+CREATE TABLE venueNameUpdateLog (
+   logID int IDENTITY(1,1) PRIMARY key,
+   updatedVenueID INT,
+   newVenueName NVARCHAR(300),
+   oldVenueName NVARCHAR(300),
+   updateTime DATETIME
+) ;
+
+CREATE TABLE venueLocationUpdateLog (
+   logID int IDENTITY(1,1) PRIMARY key,
+   updatedVenueID INT,
+   newVenueLocation NVARCHAR(300),
+   oldVenueLocation NVARCHAR(300),
+   updateTime DATETIME
+) ; 
+
+CREATE TABLE eventNameUpdateLog (
+   logID int IDENTITY(1,1) PRIMARY key,
+   updatedEventID INT,
+   newEventName NVARCHAR(300),
+   oldEventName  NVARCHAR(300),
+   updateTime DATETIME
+) ;
+
+
+CREATE TABLE eventDateUpdateLog (
+   logID int IDENTITY(1,1) PRIMARY key,
+   updatedEventID INT,
+   newEventDate DATETIME ,
+   oldEventDate DATETIME ,
+   updateTime DATETIME
+) ;
+
+GO
+
+CREATE TRIGGER trgAfterVenueNameUpdate 
+ON venue
+AFTER UPDATE 
+AS 
+BEGIN
+INSERT INTO venueNameUpdateLog(updatedVenueID , newVenueName , oldVenueName , updateTime)
+SELECT inserted.venueID , inserted.venueName , deleted.venueName , GETDATE()
+FROM inserted join deleted ON inserted.venueID = deleted.venueID
+END ;
+
+GO
+
+
+CREATE TRIGGER trgAfterVenueLocationUpdate 
+ON venue
+AFTER UPDATE 
+AS 
+BEGIN
+INSERT INTO venueLocationUpdateLog(updatedVenueID , newVenueLocation , oldVenueLocation , updateTime)
+SELECT inserted.venueID , inserted.venueLocation , deleted.venueLocation , GETDATE()
+FROM inserted join deleted ON inserted.venueID = deleted.venueID
+END ;
+
+GO
+
+
+CREATE TRIGGER trgAfterEventNameUpdate
+ON events
+AFTER UPDATE
+AS
+BEGIN
+INSERT INTO eventNameUpdateLog (updatedEventID,newEventName,oldEventName,updateTime)
+SELECT inserted.eventID ,inserted.eventName , deleted.eventName , GETDATE()
+FROM inserted join deleted ON inserted.eventID = deleted.eventID
+END;
+
+GO 
+
+CREATE TRIGGER trgAfterEventDateUpdate
+ON events
+AFTER UPDATE
+AS
+BEGIN
+INSERT INTO eventDateUpdateLog (updatedEventID,newEventDate,oldEventDate,updateTime)
+SELECT inserted.eventID ,inserted.eventDateTime , deleted.eventDateTime , GETDATE()
+FROM inserted join deleted ON inserted.eventID = deleted.eventID
+END;
+
+
