@@ -138,3 +138,96 @@ FROM inserted join deleted ON inserted.eventID = deleted.eventID
 END;
 
 
+CREATE TABLE reservedVenues (
+    reservationID INT IDENTITY (1,1),
+    venueID INT REFERENCES venue(venueID)  ON DELETE CASCADE ,
+    reservationDate DATE NOT NULL,
+    PRIMARY KEY (venueID , reservationDate)
+
+)
+
+GO
+
+CREATE PROCEDURE bookVenueByDate
+ @venueID INT ,
+ @reservationDate DATE,
+ @insertedID INT OUTPUT,
+ @statusCode INT OUTPUT
+ AS
+ BEGIN
+    IF EXISTS(SELECT * FROM reservedVenues where venueID = @venueID and reservationDate = @reservationDate)
+        BEGIN
+        SET @statusCode = 1
+        SET @insertedID = null
+        END
+    ELSE    
+        BEGIN
+        INSERT INTO reservedVenues (venueID , reservationDate)
+        VALUES(@venueID,@reservationDate)
+        SET @insertedID = SCOPE_IDENTITY()
+        SET @statusCode = 0 
+        END
+ END
+
+GO
+
+CREATE FUNCTION freeVenuesByDate (@date date)
+RETURNS TABLE 
+AS
+RETURN
+(
+    select v.venueID  , v.venueName , v.venueLocation , v.venueLevel from 
+    venue as v LEFT JOIN reservedVenues as r  ON v.venueID = r.venueID AND r.reservationDate = @date WHERE r.venueID IS NULL
+);
+
+GO
+
+ALTER TABLE venue 
+ADD venueLevel int CHECK(venueLevel between 1 and 3) NOT NULL ;
+
+CREATE TABLE eventTypes(
+    eventTypeID int IDENTITY(1,1) PRIMARY KEY , 
+    eventType NVARCHAR (100) NOT NULL
+
+)
+
+CREATE TABLE thirdLevelVenues (
+    venueID INT  UNIQUE NOT NULL,
+    eventTypeID INT  NOT NULL,
+    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
+    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
+
+)
+
+CREATE TABLE secondLevelVenues(
+    venueID INT  NOT NULL ,
+    eventTypeID INT   NOT NULL,
+    PRIMARY KEY (venueID,eventTypeID),
+    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
+    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
+
+)
+
+GO
+
+CREATE TRIGGER insertInThirdLevelVenues
+ON thirdLevelVenues
+INSTEAD OF INSERT 
+AS
+BEGIN
+ INSERT INTO thirdLevelVenues (venueID , eventTypeID)
+ SELECT inserted.venueID , inserted.eventTypeID FROM
+ inserted join venue ON inserted.venueID = venue.venueID WHERE venue.venueLevel = 3
+END
+
+GO
+
+CREATE TRIGGER insertInSecondLevelVenues
+ON secondLevelVenues
+INSTEAD OF INSERT 
+AS
+BEGIN
+ INSERT INTO secondLevelVenues (venueID , eventTypeID)
+ SELECT inserted.venueID , inserted.eventTypeID FROM
+ inserted join venue ON inserted.venueID = venue.venueID WHERE venue.venueLevel = 2
+END
