@@ -7,14 +7,31 @@ CREATE TABLE venue (
     venueLocation NVARCHAR(300) NOT NULL
 ) ;
 
+ALTER TABLE venue 
+ADD venueLevel int CHECK(venueLevel between 1 and 3) NOT NULL ;
+
 CREATE TABLE events (
     eventID INT IDENTITY(1,1) PRIMARY KEY ,
     eventName NVARCHAR(300) NOT NULL,
     eventDateTime DATETIME NOT NULL,
     eventDescription NVARCHAR(MAX) NOT NULL,
-    venueID INT REFERENCES venue(venueID)
+    venueID INT REFERENCES venue(venueID) 
     
 ) ;
+
+
+ALTER TABLE events
+DROP CONSTRAINT FK__events__venueID__1C1D2798
+
+ALTER TABLE events
+ADD CONSTRAINT FK__events__venueID__1C1D2798
+FOREIGN KEY (venueID) 
+REFERENCES venue(venueID)
+ON DELETE CASCADE;
+
+
+ALTER TABLE events
+ADD eventTypeID int REFERENCES eventTypes(eventTypeID) NOT NULL;
 
 CREATE TABLE currency (
     currencyID INT IDENTITY(1,1) PRIMARY KEY,
@@ -47,12 +64,38 @@ CREATE TABLE atendeesTickets(
     PRIMARY KEY (attendeeID , ticketID)
 )
 
-CREATE NONCLUSTERED INDEX IX_event_name ON events (eventName);
+CREATE TABLE reservedVenues (
+    reservationID INT IDENTITY (1,1),
+    venueID INT REFERENCES venue(venueID)  ON DELETE CASCADE ,
+    reservationDate DATE NOT NULL,
+    PRIMARY KEY (venueID , reservationDate)
 
-CREATE NONCLUSTERED INDEX IX_event_dateTime ON events (eventDateTime);
+)
 
-CREATE NONCLUSTERED INDEX IX_venue_name ON venue (venueName);
+CREATE TABLE eventTypes(
+    eventTypeID int IDENTITY(1,1) PRIMARY KEY , 
+    eventType NVARCHAR (100) NOT NULL
 
+)
+
+
+
+CREATE TABLE thirdLevelVenues (
+    venueID INT  UNIQUE NOT NULL,
+    eventTypeID INT  NOT NULL,
+    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
+    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
+
+)
+
+CREATE TABLE secondLevelVenues(
+    venueID INT  NOT NULL ,
+    eventTypeID INT   NOT NULL,
+    PRIMARY KEY (venueID,eventTypeID),
+    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
+    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
+
+)
 
 CREATE TABLE venueNameUpdateLog (
    logID int IDENTITY(1,1) PRIMARY key,
@@ -86,6 +129,49 @@ CREATE TABLE eventDateUpdateLog (
    oldEventDate DATETIME ,
    updateTime DATETIME
 ) ;
+
+CREATE NONCLUSTERED INDEX IX_event_name ON events (eventName);
+
+CREATE NONCLUSTERED INDEX IX_event_dateTime ON events (eventDateTime);
+
+CREATE NONCLUSTERED INDEX IX_venue_name ON venue (venueName);
+
+
+GO
+
+CREATE PROCEDURE bookVenueByDate
+ @venueID INT ,
+ @reservationDate DATE,
+ @insertedID INT OUTPUT,
+ @statusCode INT OUTPUT
+ AS
+ BEGIN
+    IF EXISTS(SELECT * FROM reservedVenues where venueID = @venueID and reservationDate = @reservationDate)
+        BEGIN
+        SET @statusCode = 1
+        SET @insertedID = null
+        END
+    ELSE    
+        BEGIN
+        INSERT INTO reservedVenues (venueID , reservationDate)
+        VALUES(@venueID,@reservationDate)
+        SET @insertedID = SCOPE_IDENTITY()
+        SET @statusCode = 0 
+        END
+ END
+
+GO
+
+CREATE FUNCTION freeVenuesByDate (@date date)
+RETURNS TABLE 
+AS
+RETURN
+(
+    select v.venueID  , v.venueName , v.venueLocation , v.venueLevel from 
+    venue as v LEFT JOIN reservedVenues as r  ON v.venueID = r.venueID AND r.reservationDate = @date WHERE r.venueID IS NULL
+);
+
+
 
 GO
 
@@ -138,76 +224,6 @@ FROM inserted join deleted ON inserted.eventID = deleted.eventID
 END;
 
 
-CREATE TABLE reservedVenues (
-    reservationID INT IDENTITY (1,1),
-    venueID INT REFERENCES venue(venueID)  ON DELETE CASCADE ,
-    reservationDate DATE NOT NULL,
-    PRIMARY KEY (venueID , reservationDate)
-
-)
-
-GO
-
-CREATE PROCEDURE bookVenueByDate
- @venueID INT ,
- @reservationDate DATE,
- @insertedID INT OUTPUT,
- @statusCode INT OUTPUT
- AS
- BEGIN
-    IF EXISTS(SELECT * FROM reservedVenues where venueID = @venueID and reservationDate = @reservationDate)
-        BEGIN
-        SET @statusCode = 1
-        SET @insertedID = null
-        END
-    ELSE    
-        BEGIN
-        INSERT INTO reservedVenues (venueID , reservationDate)
-        VALUES(@venueID,@reservationDate)
-        SET @insertedID = SCOPE_IDENTITY()
-        SET @statusCode = 0 
-        END
- END
-
-GO
-
-CREATE FUNCTION freeVenuesByDate (@date date)
-RETURNS TABLE 
-AS
-RETURN
-(
-    select v.venueID  , v.venueName , v.venueLocation , v.venueLevel from 
-    venue as v LEFT JOIN reservedVenues as r  ON v.venueID = r.venueID AND r.reservationDate = @date WHERE r.venueID IS NULL
-);
-
-GO
-
-ALTER TABLE venue 
-ADD venueLevel int CHECK(venueLevel between 1 and 3) NOT NULL ;
-
-CREATE TABLE eventTypes(
-    eventTypeID int IDENTITY(1,1) PRIMARY KEY , 
-    eventType NVARCHAR (100) NOT NULL
-
-)
-
-CREATE TABLE thirdLevelVenues (
-    venueID INT  UNIQUE NOT NULL,
-    eventTypeID INT  NOT NULL,
-    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
-    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
-
-)
-
-CREATE TABLE secondLevelVenues(
-    venueID INT  NOT NULL ,
-    eventTypeID INT   NOT NULL,
-    PRIMARY KEY (venueID,eventTypeID),
-    FOREIGN KEY (venueID) REFERENCES venue(venueID) ON DELETE CASCADE,
-    FOREIGN KEY (eventTypeID) REFERENCES eventTypes(eventTypeID) ON DELETE CASCADE
-
-)
-
 GO
 
 CREATE TRIGGER insertInThirdLevelVenues
@@ -230,4 +246,46 @@ BEGIN
  INSERT INTO secondLevelVenues (venueID , eventTypeID)
  SELECT inserted.venueID , inserted.eventTypeID FROM
  inserted join venue ON inserted.venueID = venue.venueID WHERE venue.venueLevel = 2
+END ;
+
+GO
+
+CREATE TRIGGER insertEventTypeCheck
+ON events
+INSTEAD OF INSERT
+AS
+BEGIN
+    INSERT INTO events ( inserted.eventName , inserted.eventDateTime , inserted.eventDescription , inserted.venueID , inserted.eventTypeID)
+    SELECT  inserted.eventName , inserted.eventDateTime , inserted.eventDescription , inserted.venueID , inserted.eventTypeID FROM
+    inserted join venue v ON v.venueID = inserted.venueID 
+    LEFT JOIN secondLevelVenues s ON v.venueID = s.venueID 
+    LEFT JOIN thirdLevelVenues t ON v.venueID = t.venueID
+    LEFT JOIN  reservedVenues r ON r.venueID = inserted.venueID AND r.reservationDate = CAST(inserted.eventDateTime AS DATE)
+    WHERE (v.venueLevel = 2 and s.eventTypeID  IS NOT NULL) OR (v.venueLevel = 3 and t.eventTypeID IS NOT NULL)OR v.venueLevel = 1 OR r.reservationID IS NULL
+END
+
+GO 
+
+-- CREATE TRIGGER insertEventReservationCheck 
+-- ON events
+-- INSTEAD OF INSERT
+-- AS
+-- BEGIN
+--     INSERT INTO events (inserted.eventName , inserted.eventDateTime , inserted.eventDescription , inserted.venueID , inserted.eventTypeID)
+--     SELECT  inserted.eventName , inserted.eventDateTime , inserted.eventDescription , inserted.venueID , inserted.eventTypeID FROM
+--     inserted LEFT JOIN  reservedVenues r ON r.venueID = inserted.venueID AND r.reservationDate = CAST(inserted.eventDateTime AS DATE)
+--     WHERE r.reservationID IS NULL
+-- END
+
+
+
+GO
+
+CREATE TRIGGER insertEventReservationInsert
+ON events 
+AFTER INSERT
+AS
+BEGIN
+    INSERT INTO reservedVenues (venueID , reservationDate) 
+    SELECT   inserted.venueID , cast(inserted.eventDateTime AS DATE) FROM  inserted
 END
